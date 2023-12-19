@@ -113,14 +113,14 @@ int check_fops_error(int code, bool by_true, int ret_code)
 
 SIZE_TYPE get_file_size(FILE *fd)
 {
-    SIZE_TYPE size = 0;
+    SIZE_TYPE size = 0, cur_pos = ftell(fd);
 
     TRY
     {
         check_fops_error(fseek(fd, 0, SEEK_END), false, YARCH_SUCCESS);
         size = ftell(fd);
         check_fops_error(size, true, -1L);
-        check_fops_error(fseek(fd, 0, SEEK_SET), false, YARCH_SUCCESS);
+        check_fops_error(fseek(fd, cur_pos, SEEK_SET), false, YARCH_SUCCESS);
     }
     CATCH(-YARCH_EFOPS)
     {
@@ -305,6 +305,8 @@ void compress(int argc, char *argv[])
     }
 
     char read_c = '\0';
+    char prev_c = '\0';
+    SIZE_TYPE pattern_size = 0;
     for_each_file
     {
         TRY
@@ -330,12 +332,52 @@ void compress(int argc, char *argv[])
             exit(EXIT_FAILURE);
         }
 
-        for (size_t i = 0; i < size; ++i)
+        for (SIZE_TYPE i = 0; i < size; ++i)
         {
             read_c = fgetc(fdr);
             TRY
             {
-                check_fops_error(fwrite(&read_c, sizeof(read_c), 1, fdw) != 1, false, YARCH_SUCCESS);
+                if (argv[OPTION_CMD_ARGV_INDEX][1] == 'c')
+                {
+                    if (i == 0)
+                    {
+                        prev_c = read_c;
+                        continue;
+                    }
+
+                    ++pattern_size;
+
+                    if (read_c != prev_c)
+                    {
+                        check_fops_error(fwrite(&prev_c, sizeof(prev_c), 1, fdw) != 1, false, YARCH_SUCCESS);
+                        check_fops_error(fwrite(&pattern_size, sizeof(pattern_size), 1, fdw) != 1, false, YARCH_SUCCESS);
+                        pattern_size = 0;
+                    }
+
+                    prev_c = read_c;
+                }
+                else
+                {
+                    check_fops_error(fwrite(&read_c, sizeof(read_c), 1, fdw) != 1, false, YARCH_SUCCESS);
+                }
+            }
+            CATCH(-YARCH_EFOPS)
+            {
+                perror("fwrite()");
+                fprintf(stderr, "Can't get file '%s' size\n", FILE_NAME);
+                fclose(fdw);
+                fclose(fdr);
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        if (argv[OPTION_CMD_ARGV_INDEX][1] == 'c')
+        {
+            ++pattern_size;
+            TRY
+            {
+                check_fops_error(fwrite(&prev_c, sizeof(prev_c), 1, fdw) != 1, false, YARCH_SUCCESS);
+                check_fops_error(fwrite(&pattern_size, sizeof(pattern_size), 1, fdw) != 1, false, YARCH_SUCCESS);
             }
             CATCH(-YARCH_EFOPS)
             {
@@ -405,6 +447,9 @@ void extract(int argc, char *argv[])
 
     size_t extract_path_len = 0;
     char *extract_path = NULL;
+
+    char read_data = '\0';
+    SIZE_TYPE pattern_size = 0;
 
     for (SIZE_TYPE i = 0; i < files_count; ++i)
     {
@@ -514,10 +559,9 @@ void extract(int argc, char *argv[])
 
         printf("Extracting '%s'...\n", full_filename);
 
-        fdw = fopen(full_filename, "wb");
         TRY
         {
-            check_fopen_error(fdw);
+            check_fopen_error(fdw = fopen(full_filename, "wb"));
         }
         CATCH(-YARCH_EOPEN)
         {
@@ -528,72 +572,115 @@ void extract(int argc, char *argv[])
             exit(EXIT_FAILURE);
         }
 
-        chunk_size = PAYLOAD_CHUNK_SIZE;
-
-        payload = (char *)malloc(chunk_size * sizeof(*payload));
-        if (payload == NULL)
+        if (argv[OPTION_CMD_ARGV_INDEX][1] == 'c')
         {
-            perror("malloc()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(full_filename);
-            fclose(fdw);
-            exit(EXIT_FAILURE);
-        }
-
-        for (SIZE_TYPE i = 1; i <= payload_size / PAYLOAD_CHUNK_SIZE + 1; ++i)
-        {
-            if (i * chunk_size > payload_size)
+            for (SIZE_TYPE size_i = 0; size_i < payload_size; ++size_i)
             {
-                chunk_size = payload_size - (i - 1) * chunk_size;
-
-                if (chunk_size == 0)
+                TRY
                 {
-                    break;
+                    check_fops_error(fread(&read_data, sizeof(read_data), 1, fdr_payload) != 1, false, YARCH_SUCCESS);
+                    check_fops_error(fread(&pattern_size, sizeof(pattern_size), 1, fdr_payload) != 1, false, YARCH_SUCCESS);
+                    printf("%c|%ld|%lu\n", read_data, pattern_size, ftell(fdr_payload));
                 }
-
-                payload = (char *)realloc(payload, chunk_size * sizeof(*payload));
-                if (payload == NULL)
+                CATCH(-YARCH_EFOPS)
                 {
-                    perror("realloc()");
+                    perror("fread()");
                     fclose(fdr_header);
                     fclose(fdr_payload);
                     free(full_filename);
                     fclose(fdw);
-                    free(payload);
+                    exit(EXIT_FAILURE);
+                }
+
+                TRY
+                {
+                    for (SIZE_TYPE pattern_i = 0; pattern_i < pattern_size; ++pattern_i)
+                    {
+                        check_fops_error(fwrite(&read_data, sizeof(read_data), 1, fdw) != 1, false, YARCH_SUCCESS);
+                    }
+                }
+                CATCH(-YARCH_EFOPS)
+                {
+                    perror("fwrite()");
+                    fclose(fdr_header);
+                    fclose(fdr_payload);
+                    free(full_filename);
+                    fclose(fdw);
                     exit(EXIT_FAILURE);
                 }
             }
+        }
+        else
+        {
+            chunk_size = PAYLOAD_CHUNK_SIZE;
 
-            TRY
+            payload = (char *)malloc(chunk_size * sizeof(*payload));
+            if (payload == NULL)
             {
-                check_fops_error(fread(payload, sizeof(*payload), chunk_size, fdr_payload) != chunk_size, false, YARCH_SUCCESS);
-            }
-            CATCH(-YARCH_EFOPS)
-            {
-                perror("fread()");
+                perror("malloc()");
                 fclose(fdr_header);
                 fclose(fdr_payload);
                 free(full_filename);
                 fclose(fdw);
-                free(payload);
                 exit(EXIT_FAILURE);
             }
 
-            TRY
+            for (SIZE_TYPE i = 1; i <= payload_size / PAYLOAD_CHUNK_SIZE + 1; ++i)
             {
-                check_fops_error(fwrite(payload, sizeof(*payload), chunk_size, fdw) != chunk_size, false, YARCH_SUCCESS);
+                if (i * chunk_size > payload_size)
+                {
+                    chunk_size = payload_size - (i - 1) * chunk_size;
+
+                    if (chunk_size == 0)
+                    {
+                        break;
+                    }
+
+                    payload = (char *)realloc(payload, chunk_size * sizeof(*payload));
+                    if (payload == NULL)
+                    {
+                        perror("realloc()");
+                        fclose(fdr_header);
+                        fclose(fdr_payload);
+                        free(full_filename);
+                        fclose(fdw);
+                        free(payload);
+                        exit(EXIT_FAILURE);
+                    }
+
+                    TRY
+                    {
+                        check_fops_error(fread(payload, sizeof(*payload), chunk_size, fdr_payload) != chunk_size, false, YARCH_SUCCESS);
+                    }
+                    CATCH(-YARCH_EFOPS)
+                    {
+                        perror("fread()");
+                        fclose(fdr_header);
+                        fclose(fdr_payload);
+                        free(full_filename);
+                        fclose(fdw);
+                        free(payload);
+                        exit(EXIT_FAILURE);
+                    }
+
+                    TRY
+                    {
+                        check_fops_error(fwrite(payload, sizeof(*payload), chunk_size, fdw) != chunk_size, false, YARCH_SUCCESS);
+                    }
+                    CATCH(-YARCH_EFOPS)
+                    {
+                        perror("fwrite()");
+                        fclose(fdr_header);
+                        fclose(fdr_payload);
+                        free(full_filename);
+                        fclose(fdw);
+                        free(payload);
+                        exit(EXIT_FAILURE);
+                    }
+                }
             }
-            CATCH(-YARCH_EFOPS)
-            {
-                perror("fwrite()");
-                fclose(fdr_header);
-                fclose(fdr_payload);
-                free(full_filename);
-                fclose(fdw);
-                free(payload);
-                exit(EXIT_FAILURE);
-            }
+
+            free(payload);
         }
 
         fclose(fdw);
@@ -611,22 +698,22 @@ int main(int argc, char *argv[])
     if (argc < 4)
     {
         printf("Usage:\n");
-        printf("  --compress-- %s c <archieve_name> <file_1> <file_2> ...\n", argv[0]);
-        printf("  --extract-- %s x <archieve_name> <path>\n", argv[0]);
+        printf("  --compress-- %s c<c> <archieve_name> <file_1> <file_2> ...\n", argv[0]);
+        printf("  --extract-- %s x<c> <archieve_name> <path>\n", argv[0]);
         exit(YARCH_EARGS);
     }
 
-    if (argv[1][0] == 'c')
+    if (argv[OPTION_CMD_ARGV_INDEX][0] == 'c')
     {
         compress(argc, argv);
     }
-    else if (argv[1][0] == 'x')
+    else if (argv[OPTION_CMD_ARGV_INDEX][0] == 'x')
     {
         extract(argc, argv);
     }
     else
     {
-        printf("Unknown option '%c'\n", argv[1][0]);
+        printf("Unknown option '%c'\n", argv[OPTION_CMD_ARGV_INDEX][0]);
     }
 
     return EXIT_SUCCESS;
