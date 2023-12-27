@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <setjmp.h>
 #include <errno.h>
+#include <xcleanup.h>
 
 /*
 * Return codes
@@ -134,7 +135,8 @@ void compress(int argc, char *argv[])
     {
         TRY
         {
-            check_fopen_error(fdr = fopen(FILE_NAME, "rb"));
+            XFOPEN(fdr, FILE_NAME, "rb");
+            check_fopen_error(fdr);
         }
         CATCH(-YARCH_EOPEN)
         {
@@ -145,7 +147,8 @@ void compress(int argc, char *argv[])
 
     TRY
     {
-        check_fopen_error(fdw = fopen(ARCHIEVE_NAME, "wb"));
+        XFOPEN(fdw, ARCHIEVE_NAME, "wb");
+        check_fopen_error(fdw);
     }
     CATCH(-YARCH_EOPEN)
     {
@@ -160,7 +163,6 @@ void compress(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fseek()");
-        fclose(fdw);
         exit(EXIT_FAILURE);
     }
 
@@ -170,12 +172,12 @@ void compress(int argc, char *argv[])
 
         TRY
         {
-            check_fopen_error(fdr = fopen(FILE_NAME, "rb"));
+            XFOPEN(fdr, FILE_NAME, "rb");
+            check_fopen_error(fdr);
         }
         CATCH(-YARCH_EOPEN)
         {
             perror("fopen()");
-            fclose(fdw);
             exit(EXIT_FAILURE);
         }
 
@@ -186,8 +188,6 @@ void compress(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             fprintf(stderr, "Can't get file '%s' size\n", FILE_NAME);
-            fclose(fdw);
-            fclose(fdr);
             exit(EXIT_FAILURE);
         }
 
@@ -198,8 +198,6 @@ void compress(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             perror("fwrite()");
-            fclose(fdw);
-            fclose(fdr);
             exit(EXIT_FAILURE);
         }
 
@@ -222,8 +220,6 @@ void compress(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             perror("fwrite()");
-            fclose(fdw);
-            fclose(fdr);
             exit(EXIT_FAILURE);
         }
 
@@ -234,12 +230,10 @@ void compress(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             perror("fwrite()");
-            fclose(fdw);
-            fclose(fdr);
             exit(EXIT_FAILURE);
         }
 
-        fclose(fdr);
+        XFCLOSE(fdr);
     }
 
     TRY
@@ -249,7 +243,6 @@ void compress(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         fprintf(stderr, "Can't get file '%s' size\n", ARCHIEVE_NAME);
-        fclose(fdw);
         exit(EXIT_FAILURE);
     }
 
@@ -260,7 +253,6 @@ void compress(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fseek()");
-        fclose(fdw);
         exit(EXIT_FAILURE);
     }
 
@@ -271,7 +263,6 @@ void compress(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fwrite()");
-        fclose(fdw);
         exit(EXIT_FAILURE);
     }
 
@@ -284,7 +275,6 @@ void compress(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fwrite()");
-        fclose(fdw);
         exit(EXIT_FAILURE);
     }
 
@@ -295,7 +285,6 @@ void compress(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fseek()");
-        fclose(fdw);
         exit(EXIT_FAILURE);
     }
 
@@ -304,12 +293,12 @@ void compress(int argc, char *argv[])
     {
         TRY
         {
-            check_fopen_error(fdr = fopen(FILE_NAME, "rb"));
+            XFOPEN(fdr, FILE_NAME, "rb");
+            check_fopen_error(fdr);
         }
         CATCH(-YARCH_EOPEN)
         {
             perror("fopen()");
-            fclose(fdw);
             exit(EXIT_FAILURE);
         }
 
@@ -320,8 +309,6 @@ void compress(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             fprintf(stderr, "Can't get file '%s' size\n", FILE_NAME);
-            fclose(fdw);
-            fclose(fdr);
             exit(EXIT_FAILURE);
         }
 
@@ -336,16 +323,14 @@ void compress(int argc, char *argv[])
             {
                 perror("fwrite()");
                 fprintf(stderr, "Can't get file '%s' size\n", FILE_NAME);
-                fclose(fdw);
-                fclose(fdr);
                 exit(EXIT_FAILURE);
             }
         }
 
-        fclose(fdr);
+        XFCLOSE(fdr);
     }
 
-    fclose(fdw);
+    XFCLOSE(fdw);
 
     printf("The '%s' archive is ready!\n", ARCHIEVE_NAME);
 }
@@ -354,7 +339,11 @@ void extract(int argc, char *argv[])
 {
     char *filename = NULL;
 
-    FILE *fdr_header = fopen(ARCHIEVE_NAME, "rb"), *fdr_payload = fopen(ARCHIEVE_NAME, "rb"), *fdw = NULL;
+    FILE *fdr_header = NULL, *fdr_payload = NULL, *fdw = NULL;
+
+    XFOPEN(fdr_header, ARCHIEVE_NAME, "rb");
+    XFOPEN(fdr_payload, ARCHIEVE_NAME, "rb");
+
     TRY
     {
         check_fopen_error(fdr_header);
@@ -381,8 +370,6 @@ void extract(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fread()");
-        fclose(fdr_header);
-        fclose(fdr_payload);
         exit(EXIT_FAILURE);
     }
 
@@ -393,8 +380,6 @@ void extract(int argc, char *argv[])
     CATCH(-YARCH_EFOPS)
     {
         perror("fseek()");
-        fclose(fdr_header);
-        fclose(fdr_payload);
         exit(EXIT_FAILURE);
     }
 
@@ -411,18 +396,15 @@ void extract(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             perror("fread()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
             exit(EXIT_FAILURE);
         }
         ++filename_len;
 
-        filename = (char *)malloc(filename_len * sizeof(*filename));
+        XMALLOC(filename, filename_len);
+
         if (filename == NULL)
         {
             perror("malloc()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
             exit(EXIT_FAILURE);
         }
 
@@ -433,9 +415,6 @@ void extract(int argc, char *argv[])
         CATCH(-YARCH_EFOPS)
         {
             perror("fread()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(filename);
             exit(EXIT_FAILURE);
         }
 
@@ -445,29 +424,20 @@ void extract(int argc, char *argv[])
         if (extract_path_len == 0 || extract_path_len == MAX_EXTRACT_PATH)
         {
             perror("strnlen()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(filename);
             exit(EXIT_FAILURE);
         }
 
-        extract_path = (char *)malloc((extract_path_len + 1) * sizeof(*extract_path));
+        XMALLOC(extract_path, extract_path_len + 1);
+
         if (extract_path == NULL)
         {
             perror("malloc()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(filename);
             exit(EXIT_FAILURE);
         }
 
         if (!memcpy(extract_path, EXTRACT_PATH, extract_path_len))
         {
             perror("memcpy()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(filename);
-            free(extract_path);
             exit(EXIT_FAILURE);
         }
 
@@ -483,33 +453,27 @@ void extract(int argc, char *argv[])
 
         filename_len = filename_len + extract_path_len;
 
-        full_filename = (char *)malloc(filename_len * sizeof(*full_filename));
+        XMALLOC(full_filename, filename_len);
+
         if (full_filename == NULL)
         {
             perror("malloc()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(filename);
-            free(extract_path);
             exit(EXIT_FAILURE);
         }
 
         if (!memcpy(full_filename, extract_path, extract_path_len) || !memcpy(full_filename + extract_path_len, filename, filename_len - extract_path_len))
         {
             perror("memcpy()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(filename);
-            free(extract_path);
-            free(full_filename);
             exit(EXIT_FAILURE);
         }
-        free(filename);
-        free(extract_path);
+
+        XFREE(filename);
+        XFREE(extract_path);
 
         printf("Extracting '%s'...\n", full_filename);
 
-        fdw = fopen(full_filename, "wb");
+        XFOPEN(fdw, full_filename, "wb");
+
         TRY
         {
             check_fopen_error(fdw);
@@ -517,22 +481,16 @@ void extract(int argc, char *argv[])
         CATCH(-YARCH_EOPEN)
         {
             perror("fopen()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(full_filename);
             exit(EXIT_FAILURE);
         }
 
         chunk_size = PAYLOAD_CHUNK_SIZE;
 
-        payload = (char *)malloc(chunk_size * sizeof(*payload));
+        XMALLOC(payload, chunk_size);
+
         if (payload == NULL)
         {
             perror("malloc()");
-            fclose(fdr_header);
-            fclose(fdr_payload);
-            free(full_filename);
-            fclose(fdw);
             exit(EXIT_FAILURE);
         }
 
@@ -547,15 +505,11 @@ void extract(int argc, char *argv[])
                     break;
                 }
 
-                payload = (char *)realloc(payload, chunk_size * sizeof(*payload));
+                XREALLOC(payload, chunk_size);
+
                 if (payload == NULL)
                 {
                     perror("realloc()");
-                    fclose(fdr_header);
-                    fclose(fdr_payload);
-                    free(full_filename);
-                    fclose(fdw);
-                    free(payload);
                     exit(EXIT_FAILURE);
                 }
             }
@@ -567,11 +521,6 @@ void extract(int argc, char *argv[])
             CATCH(-YARCH_EFOPS)
             {
                 perror("fread()");
-                fclose(fdr_header);
-                fclose(fdr_payload);
-                free(full_filename);
-                fclose(fdw);
-                free(payload);
                 exit(EXIT_FAILURE);
             }
 
@@ -582,27 +531,24 @@ void extract(int argc, char *argv[])
             CATCH(-YARCH_EFOPS)
             {
                 perror("fwrite()");
-                fclose(fdr_header);
-                fclose(fdr_payload);
-                free(full_filename);
-                fclose(fdw);
-                free(payload);
                 exit(EXIT_FAILURE);
             }
         }
 
-        fclose(fdw);
-        free(full_filename);
+        XFCLOSE(fdw);
+        XFREE(full_filename);
     }
 
-    fclose(fdr_header);
-    fclose(fdr_payload);
+    XFCLOSE(fdr_header);
+    XFCLOSE(fdr_payload);
 
     printf("The files from the '%s' archive have been extracted!\n", ARCHIEVE_NAME);
 }
 
 int main(int argc, char *argv[])
 {
+    CLEANUP_INIT();
+
     if (argc < 4)
     {
         printf("Usage:\n");

@@ -1,0 +1,3 @@
+[submodule "xcleanup"]
+	path = xcleanup
+	url = https://github.com/nothingIIersonal/xcleanup
